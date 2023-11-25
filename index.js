@@ -5,15 +5,22 @@ const camelToSnakeCase = str => str.replace(/[A-Z]/g, letter => `_${letter.toLow
 
 function renderProto(desc, extend, ignoreOption) {
     if (desc instanceof protobuf.Root) {
-        return [...Object.entries(desc.options).map(([name, value]) => `option ${name} = ${JSON.stringify(value)};`), ...desc.nestedArray.map((it) => renderProto(it, false)).flat(1)].filter(it => it != '');
+        return [...Object.entries(desc.options ?? {}).map(([name, value]) => `option ${name} = ${JSON.stringify(value)};`), ...desc.nestedArray.map((it) => renderProto(it, false)).flat(1)].filter(it => it != '');
     } else if (desc instanceof protobuf.MapField) {
         if (!extend && desc.extend != undefined) return [''];
         if (desc.declaringField?.extend != undefined) return [''];
         const rulePart = desc.rule != undefined ? desc.rule + ' ' : '';
-        const optPart = desc.options?.default != undefined ? ` [default=${desc.root.lookup(desc.type) instanceof protobuf.Enum ?
-            desc.options.default :
-            JSON.stringify(desc.options.default)
-            }]` : '';
+        let optPart = '';
+        if (desc.options?.default != undefined) {
+            let optParts = [];
+            if (desc.options.default != undefined) {
+                optParts.push(`default=${desc.root.lookup(desc.type) instanceof protobuf.Enum ?
+                    desc.options.default :
+                    JSON.stringify(desc.options.default)}`);
+            }
+            Object.keys().filter((it) => it != 'default').map((it) => `${it}=${desc.options[it]}`)
+            optPart = ` [${optParts.join(', ')}]`;
+        }
         return [`${rulePart}map<${desc.keyType}, ${desc.type}> ${camelToSnakeCase(desc.name)} = ${desc.id}${optPart};`];
     } else if (desc instanceof protobuf.Field) {
         if (!extend && desc.extend != undefined) return [''];
@@ -80,6 +87,10 @@ function renderProto(desc, extend, ignoreOption) {
             desc.extensions != undefined ? `\textensions ${desc.extensions[0][0]} to ${desc.extensions[0][1] == 536870911 ? 'max' : desc.extensions[0][1]};` : '',
             '}'
         ];
+    } else if (desc instanceof protobuf.Service) {
+        return [`service ${desc.name} {`, ...desc.methodsArray.map((it) => renderProto(it, false)).flat(1).filter(it => it != '').map(it => '\t' + it), '}'];
+    } else if (desc instanceof protobuf.Method) {
+        return [`rpc ${desc.name}(${desc.requestType}) return (${desc.responseType});`];
     } else if (desc instanceof protobuf.Namespace) {
         if (desc.fullName == '.google.protobuf') return [];
         const body = desc.nestedArray.map((it) => renderProto(it, false)).flat(1).filter(it => it != '').map(it => '\t' + it);
